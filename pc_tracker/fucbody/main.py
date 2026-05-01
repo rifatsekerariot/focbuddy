@@ -164,6 +164,9 @@ def main():
                 left_x = landmarks[234].x
                 right_x = landmarks[454].x
                 
+                face_height = chin_y - top_y
+                face_width = right_x - left_x
+                
                 if face_height > 0 and face_width > 0:
                     v_ratio = (nose_y - top_y) / face_height
                     h_ratio = (nose_x - left_x) / face_width
