@@ -1,0 +1,20 @@
+# Python virtual environment
+pc_tracker/fucbody/Include/
+pc_tracker/fucbody/Lib/
+pc_tracker/fucbody/Scripts/
+pc_tracker/fucbody/share/
+pc_tracker/fucbody/pyvenv.cfg
+
+# Downloaded model
+face_landmarker.task
+pc_tracker/fucbody/face_landmarker.task
+
+# Pycache
+__pycache__/
+*.pyc
+
+# Arduino build artifacts
+build/
+*.bin
+*.elf
+*.hex

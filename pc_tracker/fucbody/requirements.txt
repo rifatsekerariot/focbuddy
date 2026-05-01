@@ -1,0 +1,4 @@
+opencv-python==4.9.0.80
+mediapipe==0.10.11
+bleak==0.21.1
+numpy==1.26.4
