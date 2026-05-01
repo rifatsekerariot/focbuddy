@@ -47,34 +47,33 @@ class MyCallbacks: public BLECharacteristicCallbacks {
         Serial.println(value);
         lastBleMessageTime = millis();
 
-        // İfadelere ve Bakışlara Göre Cozmo Animasyonları
-        if (value == "LOOKING_CENTER") {
-          face->Look.LookAt(0, 0);
-          face->Expression.GoTo_Normal();
-        } else if (value == "LOOKING_LEFT") {
-          face->Look.LookAt(1.0, 0); 
-          face->Expression.GoTo_Normal();
-        } else if (value == "LOOKING_RIGHT") {
-          face->Look.LookAt(-1.0, 0);
-          face->Expression.GoTo_Normal();
-        } else if (value == "LOOKING_UP") {
-          face->Look.LookAt(0, 1.0);
-          face->Expression.GoTo_Normal();
-        } else if (value == "LOOKING_DOWN") {
-          face->Look.LookAt(0, -1.0);
-          face->Expression.GoTo_Normal();
-        } else if (value == "TALKING") {
-          face->Look.LookAt(0, 0);
-          face->Expression.GoTo_Focused(); // Konusurken odaklanmis gozler iyi durur
-        } else if (value == "SAD") {
-          face->Look.LookAt(0, 0);
-          face->Expression.GoTo_Sad();
-        } else if (value == "HAPPY") {
-          face->Look.LookAt(0, 0);
-          face->Expression.GoTo_Happy();
-        } else if (value == "AWAY") {
-          face->Look.LookAt(0, 0);
-          face->Expression.GoTo_Sleepy();
+        // Beklenen format: "EMO:HAPPY|LOOK:CENTER"
+        int sepIndex = value.indexOf('|');
+        if (sepIndex > 0) {
+          String emoPart = value.substring(0, sepIndex);
+          String lookPart = value.substring(sepIndex + 1);
+
+          // EMO Kısımı (EmotionEngine Çıktısı)
+          if (emoPart.startsWith("EMO:")) {
+            String emo = emoPart.substring(4);
+            if (emo == "ANGRY") face->Expression.GoTo_Angry();
+            else if (emo == "RELAXED") face->Expression.GoTo_Normal();
+            else if (emo == "SURPRISED") face->Expression.GoTo_Surprised();
+            else if (emo == "SLEEPY") face->Expression.GoTo_Sleepy();
+            else if (emo == "NEUTRAL") face->Expression.GoTo_Normal();
+            else if (emo == "HAPPY") face->Expression.GoTo_Happy();
+            else if (emo == "SAD") face->Expression.GoTo_Sad();
+          }
+
+          // LOOK Kısımı (Baş / Göz Açısı)
+          if (lookPart.startsWith("LOOK:")) {
+            String look = lookPart.substring(5);
+            if (look == "CENTER") face->Look.LookAt(0, 0);
+            else if (look == "LEFT") face->Look.LookAt(1.0, 0);
+            else if (look == "RIGHT") face->Look.LookAt(-1.0, 0);
+            else if (look == "UP") face->Look.LookAt(0, 1.0);
+            else if (look == "DOWN") face->Look.LookAt(0, -1.0);
+          }
         }
       }
     }
