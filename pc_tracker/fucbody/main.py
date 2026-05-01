@@ -120,7 +120,7 @@ def main():
     away_timeout = 2.0
     debouncer = StateDebouncer(required_frames=10) 
     
-    print("Kamera: Başlatıldı. Çıkmak için 'q' tuşuna basın.")
+    print("Kamera: Başlatıldı. Arka planda çalışıyor. Çıkmak için terminalde 'Ctrl + C' tuşlarına basın.")
     
     last_sent_state = STATE_AWAY
     state_queue.put(last_sent_state)
@@ -211,11 +211,15 @@ def main():
 
         cv2.putText(image, f"Stable State: {stable_state}", (20, 140), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
-        image_mirrored = cv2.flip(image, 1)
-        cv2.imshow('Focus Buddy Tracker', image_mirrored)
+        # -- Görüntü Gösterme Kısımlarını Devre Dışı Bıraktık --
+        # image_mirrored = cv2.flip(image, 1)
+        # cv2.imshow('Focus Buddy Tracker', image_mirrored)
 
-        if cv2.waitKey(5) & 0xFF == ord('q'):
-            break
+        # if cv2.waitKey(5) & 0xFF == ord('q'):
+        #     break
+
+        # Döngünün çok hızlı çalışıp CPU'yu yormaması için küçük bir bekleme
+        time.sleep(0.01)
 
     cap.release()
     cv2.destroyAllWindows()
