@@ -86,15 +86,8 @@ def main():
     detector = vision.FaceLandmarker.create_from_options(options)
 
     # Emotion Engine Başlatma
-    # Biraz açık ve dışadönük bir robot
     robot_personality = Personality(extraversion=0.7, neuroticism=0.4, openness=0.8)
     engine = EmotionEngine(personality=robot_personality)
-    
-    # Olayları Kaydet
-    engine.register_event("smile", p_delta=0.4, a_delta=0.2, d_delta=0.1)
-    engine.register_event("frown", p_delta=-0.4, a_delta=0.2, d_delta=-0.2)
-    engine.register_event("talking", p_delta=0.1, a_delta=0.5, d_delta=0.3)
-    engine.register_event("away", p_delta=-0.1, a_delta=-0.4, d_delta=-0.3)
 
     cap = cv2.VideoCapture(0)
     time.sleep(1)
@@ -109,6 +102,11 @@ def main():
 
     last_loop_time = time.time()
 
+    # Bakış yönü (LOOK) filtresi için
+    look_command = "LOOK:CENTER"
+    pending_look_command = "LOOK:CENTER"
+    look_change_time = time.time()
+
     try:
         while cap.isOpened():
             success, image = cap.read()
@@ -119,16 +117,13 @@ def main():
             dt = current_time - last_loop_time
             last_loop_time = current_time
             
-            # Motoru güncelle (Decay)
+            # Motoru güncelle (İnterpolasyon ile yavaşça hedefe kay)
             engine.update(dt)
 
             image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image_rgb)
             
             detection_result = detector.detect(mp_image)
-
-            triggered_events = []
-            look_command = "LOOK:CENTER"
 
             if len(detection_result.face_landmarks) > 0:
                 last_face_time = current_time
@@ -148,6 +143,17 @@ def main():
                 smile_score = (smile_l + smile_r) / 2.0
                 frown_score = max((frown_l + frown_r) / 2.0, (brow_down_l + brow_down_r) / 2.0)
 
+                # Hedef PAD hesaplama (Doğal yüzü yoksaymak için safe margin kullanıyoruz)
+                # frown_score 0.35'in altındaysa 0 kabul edilir.
+                safe_smile = max(0.0, smile_score - 0.1) * 1.5
+                safe_frown = max(0.0, frown_score - 0.35) * 2.0 
+                
+                target_p = min(1.0, safe_smile) - min(1.0, safe_frown)
+                target_a = min(1.0, jaw_open * 2.0)
+                
+                # Hedefi motora ver (Motor dt ile yavaşça bu noktaya akacak)
+                engine.set_target_state(target_p, target_a, 0.0)
+
                 # Landmarks (Pozisyon skorları)
                 landmarks = detection_result.face_landmarks[0]
                 nose_x, nose_y = landmarks[1].x, landmarks[1].y
@@ -163,36 +169,31 @@ def main():
                     v_ratio = (nose_y - top_y) / face_height
                     h_ratio = (nose_x - left_x) / face_width
                     
-                    # Olay Tetikleme (Thresholds)
-                    # Sadece net ifadelerde tetikle, yoksa gereksiz spam yapar
-                    if jaw_open > 0.15:
-                        triggered_events.append("talking")
-                    if smile_score > 0.4:
-                        triggered_events.append("smile")
-                    if frown_score > 0.4:
-                        triggered_events.append("frown")
-                    
-                    # Baş Açısı -> Sadece Look Command
+                    new_look = "LOOK:CENTER"
                     if v_ratio < 0.45:
-                        look_command = "LOOK:UP"
+                        new_look = "LOOK:UP"
                     elif v_ratio > 0.65:
-                        look_command = "LOOK:DOWN"
+                        new_look = "LOOK:DOWN"
                     elif h_ratio > 0.65:
-                        look_command = "LOOK:LEFT"
+                        new_look = "LOOK:LEFT"
                     elif h_ratio < 0.35:
-                        look_command = "LOOK:RIGHT"
+                        new_look = "LOOK:RIGHT"
+                    
+                    # Titremeyi önlemek için yön değişiminde 0.3s bekleme (Low-pass zaman filtresi)
+                    if new_look != pending_look_command:
+                        pending_look_command = new_look
+                        look_change_time = current_time
+                    elif current_time - look_change_time > 0.3:
+                        look_command = pending_look_command
                         
-                    cv2.putText(image, f"Smile:{smile_score:.2f} Frown:{frown_score:.2f}", (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 1)
-                    cv2.putText(image, f"Jaw:{jaw_open:.2f} V:{v_ratio:.2f} H:{h_ratio:.2f}", (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 1)
+                    cv2.putText(image, f"T_P:{target_p:.2f} T_A:{target_a:.2f}", (20, 70), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 1)
+                    cv2.putText(image, f"S:{smile_score:.2f} F:{frown_score:.2f}", (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 1)
             else:
                 if current_time - last_face_time > away_timeout:
-                    triggered_events.append("away")
-                    
-            # Olayları motora gönder
-            if triggered_events:
-                engine.trigger_event(triggered_events)
+                    # Uzaktayken üzgün ve uykulu hedefine yavaşça geç
+                    engine.set_target_state(-0.2, -0.8, -0.5)
+                    look_command = "LOOK:CENTER"
             
-            # Yeni ESP32 formatı
             emotion_name, intensity, desc = engine.get_esp32_state()
             new_state = f"EMO:{emotion_name}|{look_command}"
             
@@ -202,7 +203,6 @@ def main():
 
             cv2.putText(image, f"State: {new_state}", (20, 140), cv2.FONT_HERSHEY_SIMPLEX, 1, (0, 0, 255), 2)
 
-            # Döngünün çok hızlı çalışıp CPU'yu yormaması için küçük bir bekleme
             time.sleep(0.01)
 
     except KeyboardInterrupt:

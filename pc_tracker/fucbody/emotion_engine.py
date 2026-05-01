@@ -37,8 +37,9 @@ class EmotionEngine:
         """
         self.personality = personality or Personality()
         self.state = EmotionState()
+        self.target_state = EmotionState() # Sürekli takip için hedef durum
         
-        # Saniyede sıfıra yaklaşma oranı (Örn: arousal saniyede %10 düşer)
+        # Saniyede hedefe yaklaşma oranı (Interpolation Speed)
         self.decay_rates = decay_rates or {
             "pleasure": 0.05,
             "arousal": 0.15,
@@ -133,16 +134,35 @@ class EmotionEngine:
         if event_names:
             self._log(f"Tetiklendi: {event_names} | Yeni State: P={self.state.pleasure:.2f}, A={self.state.arousal:.2f}")
 
+    def set_target_state(self, p: float, a: float, d: float):
+        """
+        Sürekli takip modu için hedeflenen PAD durumunu belirler.
+        Robot zamanla (interpolasyon ile) bu duruma doğru yumuşakça geçer.
+        """
+        self.target_state.pleasure = max(-1.0, min(1.0, p))
+        self.target_state.arousal = max(-1.0, min(1.0, a))
+        self.target_state.dominance = max(-1.0, min(1.0, d))
+
     def update(self, dt: float):
         """
-        Homeostaz: Duyguları zamanla sıfıra (nötr duruma) doğru çeker.
+        Homeostaz ve Target Tracking: Duyguları zamanla hedef duruma doğru çeker.
         Her FPS döngüsünde (dt = delta time saniye cinsinden) çağrılır.
+        Eğer bir target atanmadıysa (0,0,0) homeostaz gibi davranıp nötr duruma döner.
         """
-        # Üssel sönümleme: state = state * (1 - decay_rate)^dt
-        # Ancak dt küçükse, basit euler: state -= state * decay_rate * dt
-        self.state.pleasure -= self.state.pleasure * self.decay_rates["pleasure"] * dt
-        self.state.arousal -= self.state.arousal * self.decay_rates["arousal"] * dt
-        self.state.dominance -= self.state.dominance * self.decay_rates["dominance"] * dt
+        # Hedefe olan uzaklık
+        p_diff = self.target_state.pleasure - self.state.pleasure
+        a_diff = self.target_state.arousal - self.state.arousal
+        d_diff = self.target_state.dominance - self.state.dominance
+
+        # Yaylanma (Spring) / İnterpolasyon hızı (Katsayıyı hız için 5.0 ile çarptık)
+        self.state.pleasure += p_diff * self.decay_rates["pleasure"] * dt * 5.0
+        self.state.arousal += a_diff * self.decay_rates["arousal"] * dt * 5.0
+        self.state.dominance += d_diff * self.decay_rates["dominance"] * dt * 5.0
+
+        # Sınırlandırma (Clipping)
+        self.state.pleasure = max(-1.0, min(1.0, self.state.pleasure))
+        self.state.arousal = max(-1.0, min(1.0, self.state.arousal))
+        self.state.dominance = max(-1.0, min(1.0, self.state.dominance))
 
         # Mood güncellemesi (Her 1 saniyede bir örneklem al)
         current_time = time.time()
