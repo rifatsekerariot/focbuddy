@@ -63,6 +63,10 @@ class MyCallbacks: public BLECharacteristicCallbacks {
             else if (emo == "NEUTRAL") face->Expression.GoTo_Normal();
             else if (emo == "HAPPY") face->Expression.GoTo_Happy();
             else if (emo == "SAD") face->Expression.GoTo_Sad();
+            // Otonom Karakter İfadeleri
+            else if (emo == "SUSPICIOUS") face->Expression.GoTo_Suspicious();
+            else if (emo == "UNIMPRESSED") face->Expression.GoTo_Unimpressed();
+            else if (emo == "FRUSTRATED") face->Expression.GoTo_Frustrated();
           }
 
           // LOOK Kısımı (Baş / Göz Açısı)

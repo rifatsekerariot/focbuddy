@@ -11,6 +11,7 @@ import urllib.request
 from bleak import BleakClient, BleakScanner
 
 from emotion_engine import EmotionEngine, Personality
+from behavior_engine import FocusDatabase, AutonomousBehavior
 
 # --- Ayarlar ---
 SERVICE_UUID = "4fafc201-1fb5-459e-8fcc-c5c9c331914b"
@@ -76,7 +77,6 @@ def main():
 
     model_path = download_model_if_needed()
 
-    # Face Landmarker Ayarları
     base_options = python.BaseOptions(model_asset_path=model_path)
     options = vision.FaceLandmarkerOptions(
         base_options=base_options,
@@ -85,9 +85,11 @@ def main():
     )
     detector = vision.FaceLandmarker.create_from_options(options)
 
-    # Emotion Engine Başlatma
     robot_personality = Personality(extraversion=0.7, neuroticism=0.4, openness=0.8)
     engine = EmotionEngine(personality=robot_personality)
+
+    db = FocusDatabase()
+    behavior = AutonomousBehavior(db)
 
     cap = cv2.VideoCapture(0)
     time.sleep(1)
@@ -102,7 +104,6 @@ def main():
 
     last_loop_time = time.time()
 
-    # Bakış yönü (LOOK) filtresi için
     look_command = "LOOK:CENTER"
     pending_look_command = "LOOK:CENTER"
     look_change_time = time.time()
@@ -117,18 +118,19 @@ def main():
             dt = current_time - last_loop_time
             last_loop_time = current_time
             
-            # Motoru güncelle (İnterpolasyon ile yavaşça hedefe kay)
             engine.update(dt)
 
             image_rgb = cv2.cvtColor(image, cv2.COLOR_BGR2RGB)
             mp_image = mp.Image(image_format=mp.ImageFormat.SRGB, data=image_rgb)
             
             detection_result = detector.detect(mp_image)
+            
+            face_detected = len(detection_result.face_landmarks) > 0
+            override_emotion = behavior.update(face_detected, current_time)
 
-            if len(detection_result.face_landmarks) > 0:
+            if face_detected:
                 last_face_time = current_time
                 
-                # Blendshapes (İfade skorları)
                 blendshapes = detection_result.face_blendshapes[0]
                 scores = {category.category_name: category.score for category in blendshapes}
                 
@@ -143,27 +145,24 @@ def main():
                 smile_score = (smile_l + smile_r) / 2.0
                 frown_score = max((frown_l + frown_r) / 2.0, (brow_down_l + brow_down_r) / 2.0)
 
-                # Hedef PAD hesaplama (Doğal yüzü yoksaymak için safe margin kullanıyoruz)
-                # frown_score 0.35'in altındaysa 0 kabul edilir.
                 safe_smile = max(0.0, smile_score - 0.1) * 1.5
                 safe_frown = max(0.0, frown_score - 0.35) * 2.0 
                 
                 target_p = min(1.0, safe_smile) - min(1.0, safe_frown)
                 target_a = min(1.0, jaw_open * 2.0)
                 
-                # Hedefi motora ver (Motor dt ile yavaşça bu noktaya akacak)
+                # Ciddi bir ifade değişikliği varsa robotun "staring" tepkisi yatışır
+                if abs(target_p) > 0.4 or target_a > 0.4:
+                    behavior.reset_staring(current_time)
+
                 engine.set_target_state(target_p, target_a, 0.0)
 
-                # Landmarks (Pozisyon skorları)
                 landmarks = detection_result.face_landmarks[0]
                 nose_x, nose_y = landmarks[1].x, landmarks[1].y
                 top_y = landmarks[10].y
                 chin_y = landmarks[152].y
                 left_x = landmarks[234].x
                 right_x = landmarks[454].x
-                
-                face_height = chin_y - top_y
-                face_width = right_x - left_x
                 
                 if face_height > 0 and face_width > 0:
                     v_ratio = (nose_y - top_y) / face_height
@@ -179,7 +178,6 @@ def main():
                     elif h_ratio < 0.35:
                         new_look = "LOOK:RIGHT"
                     
-                    # Titremeyi önlemek için yön değişiminde 0.3s bekleme (Low-pass zaman filtresi)
                     if new_look != pending_look_command:
                         pending_look_command = new_look
                         look_change_time = current_time
@@ -190,11 +188,16 @@ def main():
                     cv2.putText(image, f"S:{smile_score:.2f} F:{frown_score:.2f}", (20, 100), cv2.FONT_HERSHEY_SIMPLEX, 0.6, (255, 255, 0), 1)
             else:
                 if current_time - last_face_time > away_timeout:
-                    # Uzaktayken üzgün ve uykulu hedefine yavaşça geç
                     engine.set_target_state(-0.2, -0.8, -0.5)
                     look_command = "LOOK:CENTER"
             
             emotion_name, intensity, desc = engine.get_esp32_state()
+            
+            # Otonom override varsa normal motoru ez
+            if override_emotion:
+                emotion_name = override_emotion
+                look_command = "LOOK:CENTER"
+
             new_state = f"EMO:{emotion_name}|{look_command}"
             
             if new_state != last_sent_state:
